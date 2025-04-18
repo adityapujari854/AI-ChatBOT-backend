@@ -12,7 +12,7 @@ if not GOOGLE_CREDENTIALS_PATH:
     raise EnvironmentError("GOOGLE_APPLICATION_CREDENTIALS not set in .env file")
 
 # Local imports
-from app.routes import chat
+from app.routes import chats
 from app.utils.config import config
 
 # Initialize the FastAPI app
@@ -28,7 +28,7 @@ app.add_middleware(
 )
 
 # Include the router for the chat functionality
-app.include_router(chat.router, prefix="/api", tags=["chat"])
+app.include_router(chats.router, prefix="/api", tags=["chat"])
 
 # Default route for testing
 @app.get("/")

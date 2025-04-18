@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg-info/
+dist/
+build/
+.env
+.env.*
+venv/
+.venv/
+pip-log.txt
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.next/
+out/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+
+# Docker
+*.pid
+*.db
+*.sqlite3
+docker-compose.override.yml
+
+# MongoDB dump
+dump/
+*.bson
+*.gz
+
+# Vercel & Railway
+.vercel/
+.output/
+.railway/
+
+# Coverage / Testing
+htmlcov/
+coverage.xml
+.pytest_cache/
+.cache/
+__snapshots__/
+
+# Credentials & Models
+credentials/
+*.json
+*.ckpt
+*.pt
+*.pth
+
+# Uploaded files
+uploads/
+files/
+tmp/
+.env
+.env
+.env

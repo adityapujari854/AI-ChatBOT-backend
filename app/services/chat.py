@@ -110,14 +110,16 @@ def process_chat(request: dict) -> str:
         if not request.get("session_id"):
             raise ValueError("Session ID is required")
 
-        # Translate input
+        # Translate input to English
         translated = translate_text(prompt, "en") if language != "en" else prompt
 
-        # Query LLM
-        llm_output = query_llm(translated)
+        # 🔥 Use Mistral via OpenRouter
+        llm_output = query_llm(translated, model="openrouter-mistral")
 
         # Translate back to user language
         final_output = translate_text(llm_output, language) if language != "en" else llm_output
+
+        # Optional: Format for frontend
         chunked_output = final_output.replace('. ', '.\n')
         return chunked_output
 
