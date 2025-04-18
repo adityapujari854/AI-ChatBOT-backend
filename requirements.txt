@@ -8,6 +8,7 @@ pymongo
 cohere
 tqdm
 PyJWT
+google-cloud-translate==3.13.0
 # openai
 # langchain
 # chromadb
