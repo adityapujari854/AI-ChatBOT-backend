@@ -4,24 +4,24 @@ httpx
 requests
 python-dotenv
 pydantic
-langchain
-chromadb
-pgvector
-sqlalchemy
-psycopg2-binary
 pymongo
-googletrans==4.0.0rc1
-transformers
-sentence-transformers
-openai # required by LangChain and compatible with OpenRouter
 cohere
 tqdm
-nltk
 PyJWT
-passlib[bcrypt]
-python-multipart
-email-validator
-python-jose[cryptography]
-indic-trans
-celery
-redis
+# openai
+# langchain
+# chromadb
+# pgvector
+# sqlalchemy
+# psycopg2-binary
+# googletrans==4.0.0rc1
+# transformers
+# sentence-transformers
+# nltk
+# passlib[bcrypt]
+# python-multipart
+# email-validator
+# python-jose[cryptography]
+# indic-trans
+# celery
+# redis
