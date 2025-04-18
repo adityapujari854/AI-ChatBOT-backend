@@ -6,12 +6,10 @@ import os
 # Load environment variables from .env file
 load_dotenv()
 
-# Absolute path to your credentials JSON
-DEFAULT_CREDENTIALS_PATH = r"C:\Users\adity\Documents\AI ChatBOT\backend\ai-chatbot-456710-14a3e3bded79.json"
-
-# Set GOOGLE_APPLICATION_CREDENTIALS if not already set
-if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = DEFAULT_CREDENTIALS_PATH
+# Ensure Google Application Credentials path is loaded
+GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+if not GOOGLE_CREDENTIALS_PATH:
+    raise EnvironmentError("GOOGLE_APPLICATION_CREDENTIALS not set in .env file")
 
 # Local imports
 from app.routes import chat
