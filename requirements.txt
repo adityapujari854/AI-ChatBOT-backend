@@ -9,6 +9,7 @@ cohere
 tqdm
 PyJWT
 google-cloud-translate==3.13.0
+groq
 # openai
 # langchain
 # chromadb
