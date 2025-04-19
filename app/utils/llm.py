@@ -4,7 +4,6 @@ import os
 import requests
 from dotenv import load_dotenv
 import aiohttp
-import asyncio
 import json
 
 # Load environment variables

@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List
+import asyncio
 from app.services.chat import (
     process_chat,
     get_chat_history_by_session,
