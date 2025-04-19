@@ -1,11 +1,13 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List
 from app.services.chat import (
     process_chat,
     get_chat_history_by_session,
     save_chat_history,
-    get_user_chat_sessions
+    get_user_chat_sessions,
+    stream_chat_response
 )
 
 router = APIRouter()
@@ -64,6 +66,39 @@ async def chat(request: ChatRequest):
     except Exception as e:
         print(f"[ERROR /chat]: {str(e)}")
         raise HTTPException(status_code=500, detail="Something went wrong during chat.")
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: Request):
+    """
+    Streaming chat response endpoint.
+    Compatible with AbortController from frontend.
+    """
+    try:
+        body = await request.json()
+        prompt = body.get("prompt", "")
+        session_id = body.get("session_id")
+        language = body.get("language", "en")
+
+        print(f"[Stream Start | Session: {session_id} | Lang: {language}]: {prompt}")
+
+        async def event_generator():
+            try:
+                async for chunk in stream_chat_response({
+                    "prompt": prompt,
+                    "language": language,
+                    "session_id": session_id
+                }):
+                    yield chunk
+            except asyncio.CancelledError:
+                print(f"[STREAM CANCELLED]: Session {session_id}")
+                return
+
+        return StreamingResponse(event_generator(), media_type="text/plain")
+
+    except Exception as e:
+        print(f"[ERROR /chat/stream]: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error in streaming response.")
 
 
 @router.get("/history", response_model=HistoryResponse)

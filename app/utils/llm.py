@@ -3,6 +3,9 @@ import re
 import os
 import requests
 from dotenv import load_dotenv
+import aiohttp
+import asyncio
+import json
 
 # Load environment variables
 load_dotenv()
@@ -196,3 +199,53 @@ def format_llm_response(text: str) -> str:
         flush_paragraph(buffer)
 
     return "\n".join(html_parts)
+
+
+async def stream_llm_response(prompt: str, model: str = "openrouter-mistral", session_id: str = None):
+    """
+    Streams chunks from OpenRouter.
+    """
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {openrouter_api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "mistralai/mistral-7b-instruct:free",
+        "stream": True,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are Nimbus, a helpful, friendly, and intelligent assistant. "
+                    "If someone asks your name, you must reply with: "
+                    "'Hello! It's nice to meet you. I don't have a personal name, but you can call me Nimbus. "
+                    "How can I assist you today?' Respond helpfully and kindly."
+                )
+            },
+            {"role": "user", "content": prompt}
+        ]
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=payload) as resp:
+            if resp.status != 200:
+                error_text = await resp.text()
+                print("OpenRouter Error:", error_text)
+                yield "Sorry, something went wrong.\n"
+                return
+            async for line in resp.content:
+                if line:
+                    decoded = line.decode("utf-8")
+                    if decoded.startswith("data: "):
+                        chunk = decoded[6:].strip()
+                        if chunk == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(chunk)
+                            delta = data["choices"][0]["delta"].get("content", "")
+                            if delta:
+                                yield delta
+                        except Exception as e:
+                            print("Streaming parse error:", e)
+                            continue

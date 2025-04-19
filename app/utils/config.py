@@ -6,7 +6,7 @@ load_dotenv()
 
 class Config:
     """General application configuration."""
-    PROJECT_NAME: str = "AI Chat Backend"
+    PROJECT_NAME: str = "NIMBUS Backend"
     API_PREFIX: str = "/api/v1"  # API versioning
 
     # Debug mode
