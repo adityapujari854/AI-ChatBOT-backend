@@ -33,27 +33,31 @@ def remove_emojis(text: str) -> str:
     )
     return emoji_pattern.sub(r'', text)
 
-# Main function
+# Translate text to target language
 def translate_text(text: str, target_lang: str = "en") -> str:
-    if not text.strip():
+    """
+    Translates input text to target_lang.
+    Returns original text if translation fails.
+    """
+    if not text or not text.strip():
         return ""
 
     try:
         result = translate_client.translate(
             text,
             target_language=target_lang,
-            format_="text"
+            format_='text'
         )
-        translated = result["translatedText"]
+        translated = result.get("translatedText", "")
 
         if isinstance(translated, bytes):
             translated = translated.decode("utf-8")
 
-        # Optional: clean emojis
+        # Optional: clean emojis from output
         # translated = remove_emojis(translated)
 
         return translated
 
     except Exception as e:
         print(f"[Translation Error]: {e}")
-        return text  # Fallback: return original text
+        return text  # fallback: return original if translation fails

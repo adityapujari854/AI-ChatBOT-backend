@@ -15,14 +15,28 @@ openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
 # Session-specific model cache (in-memory)
 session_model_map = {}  # key: session_id, value: model name
 
-def query_llm(prompt: str, model: str = "nimbus", session_id: str = None) -> str:
+def get_system_prompt(language: str = "en") -> str:
+    """
+    Returns a language-aware system prompt to enable code-mixed output.
+    """
+    if language == "en":
+        return (
+            "You are Nimbus, a helpful, friendly, and intelligent assistant. "
+            "Reply completely in English."
+        )
+    else:
+        return (
+            f"You are Nimbus, a helpful, friendly, and intelligent assistant. "
+            f"Reply primarily in {language} but feel free to include some English phrases for clarity. "
+            f"Be natural and conversational."
+        )
+
+def query_llm(prompt: str, model: str = "nimbus", session_id: str = None, language: str = "en") -> str:
     """
     Sends a prompt to the selected LLM provider.
     Tries OpenRouter → falls back to Groq.
-    Keeps the model fixed for the session until changed manually or fails.
     """
 
-    # Always use cached model if set for session
     if session_id and session_id in session_model_map:
         model = session_model_map[session_id]
 
@@ -39,12 +53,7 @@ def query_llm(prompt: str, model: str = "nimbus", session_id: str = None) -> str
                     "messages": [
                         {
                             "role": "system",
-                            "content": (
-                                "You are Nimbus, a helpful, friendly, and intelligent assistant. "
-                                "If someone asks your name, you must reply with: "
-                                "'Hello! It's nice to meet you. I don't have a personal name, but you can call me Nimbus. "
-                                "How can I assist you today?' Respond helpfully and kindly."
-                            )
+                            "content": get_system_prompt(language)
                         },
                         {"role": "user", "content": prompt}
                     ]
@@ -66,7 +75,7 @@ def query_llm(prompt: str, model: str = "nimbus", session_id: str = None) -> str
                         print("[INFO] OpenRouter rate limit hit. Switching to Groq...")
                         if session_id:
                             session_model_map[session_id] = "groq"
-                        return query_llm(prompt, model="groq", session_id=session_id)
+                        return query_llm(prompt, model="groq", session_id=session_id, language=language)
                     return f"OpenRouter Error: {result['error'].get('message', 'Unknown error')}"
 
                 if "choices" in result and len(result["choices"]) > 0:
@@ -82,7 +91,7 @@ def query_llm(prompt: str, model: str = "nimbus", session_id: str = None) -> str
                 print("Falling back to Groq...")
                 if session_id:
                     session_model_map[session_id] = "groq"
-                return query_llm(prompt, model="groq", session_id=session_id)
+                return query_llm(prompt, model="groq", session_id=session_id, language=language)
 
         elif model == "groq":
             try:
@@ -93,12 +102,7 @@ def query_llm(prompt: str, model: str = "nimbus", session_id: str = None) -> str
                     messages=[
                         {
                             "role": "system",
-                            "content": (
-                                "You are Nimbus, a helpful, friendly, and intelligent assistant. "
-                                "If someone asks your name, you must reply with: "
-                                "'Hello! It's nice to meet you. I don't have a personal name, but you can call me Nimbus. "
-                                "How can I assist you today?' Respond helpfully and kindly."
-                            )
+                            "content": get_system_prompt(language)
                         },
                         {"role": "user", "content": prompt}
                     ]
@@ -115,7 +119,6 @@ def query_llm(prompt: str, model: str = "nimbus", session_id: str = None) -> str
                 return "Sorry, Our Nimbus is currently unavailable."
 
         else:
-            # Optional Cohere fallback
             import cohere
             co = cohere.Client(cohere_api_key)
             response = co.chat(model=model, message=prompt, temperature=0.5)
@@ -130,11 +133,9 @@ def query_llm(prompt: str, model: str = "nimbus", session_id: str = None) -> str
         print(f"[ERROR - query_llm]: {e}")
         return "Sorry, I couldn't process your request."
 
-
 def format_llm_response(text: str) -> str:
     """
     Converts raw LLM response to formatted HTML.
-    Supports paragraphs, bullet points, and numbered lists.
     """
     lines = text.strip().splitlines()
     html_parts = []
@@ -199,10 +200,9 @@ def format_llm_response(text: str) -> str:
 
     return "\n".join(html_parts)
 
-
-async def stream_llm_response(prompt: str, model: str = "openrouter-mistral", session_id: str = None):
+async def stream_llm_response(prompt: str, model: str = "openrouter-mistral", session_id: str = None, language: str = "en"):
     """
-    Streams chunks from OpenRouter.
+    Streams chunks from OpenRouter with dynamic language-aware system prompt.
     """
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
@@ -215,12 +215,7 @@ async def stream_llm_response(prompt: str, model: str = "openrouter-mistral", se
         "messages": [
             {
                 "role": "system",
-                "content": (
-                    "You are Nimbus, a helpful, friendly, and intelligent assistant. "
-                    "If someone asks your name, you must reply with: "
-                    "'Hello! It's nice to meet you. I don't have a personal name, but you can call me Nimbus. "
-                    "How can I assist you today?' Respond helpfully and kindly."
-                )
+                "content": get_system_prompt(language)
             },
             {"role": "user", "content": prompt}
         ]
@@ -243,7 +238,7 @@ async def stream_llm_response(prompt: str, model: str = "openrouter-mistral", se
                         try:
                             data = json.loads(chunk)
                             delta = data["choices"][0]["delta"].get("content", "")
-                            if delta:
+                            if delta and delta.strip():
                                 yield delta
                         except Exception as e:
                             print("Streaming parse error:", e)
