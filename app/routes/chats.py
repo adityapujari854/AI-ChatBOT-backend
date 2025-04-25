@@ -1,9 +1,11 @@
+# app/routes/chats.py
+
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List
 import asyncio
-from app.services.chat import (
+from app.services.chat_processing import (
     process_chat,
     get_chat_history_by_session,
     save_chat_history,
@@ -46,23 +48,27 @@ async def chat(request: ChatRequest):
     try:
         print(f"[User Input in {request.language} | Session: {request.session_id} | User: {request.user_id}]: {request.prompt}")
 
-        final_response = process_chat({
+        # Process chat and get all necessary outputs from LLM
+        result = process_chat({
             "prompt": request.prompt,
             "language": request.language,
             "session_id": request.session_id
         })
 
-        print(f"[LLM Response]: {final_response}")
+        print(f"[LLM Response]: {result['final_response']}")
 
+        # Save chat using already available data
         save_chat_history(
             session_id=request.session_id,
             user_id=request.user_id,
             user_message=request.prompt,
-            assistant_message=final_response,
+            translated_prompt=result["translated_prompt"],
+            llm_response=result["llm_response"],
+            final_response=result["final_response"],
             language=request.language
         )
 
-        return ChatResponse(response=final_response)
+        return ChatResponse(response=result["final_response"])
 
     except Exception as e:
         print(f"[ERROR /chat]: {str(e)}")
@@ -73,7 +79,7 @@ async def chat(request: ChatRequest):
 async def chat_stream(request: Request):
     """
     Streaming chat response endpoint.
-    Compatible with AbortController from frontend.
+    Compatible with frontend streaming (e.g., EventSource or fetch streaming).
     """
     try:
         body = await request.json()
@@ -81,8 +87,12 @@ async def chat_stream(request: Request):
         session_id = body.get("session_id")
         language = body.get("language", "en")
 
+        if not session_id:
+            raise ValueError("Session ID is required")
+
         print(f"[Stream Start | Session: {session_id} | Lang: {language}]: {prompt}")
 
+        # Async generator to stream data
         async def event_generator():
             try:
                 async for chunk in stream_chat_response({
@@ -90,11 +100,14 @@ async def chat_stream(request: Request):
                     "language": language,
                     "session_id": session_id
                 }):
-                    yield chunk
+                    if chunk.strip():  # Ensure empty chunks aren't streamed
+                        yield chunk
             except asyncio.CancelledError:
+                # Gracefully handle when the stream is cancelled
                 print(f"[STREAM CANCELLED]: Session {session_id}")
                 return
 
+        # Return StreamingResponse for frontend to consume the chunks
         return StreamingResponse(event_generator(), media_type="text/plain")
 
     except Exception as e:
@@ -104,6 +117,9 @@ async def chat_stream(request: Request):
 
 @router.get("/history", response_model=HistoryResponse)
 async def get_history(session_id: str = Query(..., description="Chat session ID")):
+    """
+    Retrieves the chat history for a particular session.
+    """
     try:
         history = get_chat_history_by_session(session_id)
         return {"history": history}
@@ -114,6 +130,9 @@ async def get_history(session_id: str = Query(..., description="Chat session ID"
 
 @router.get("/sessions", response_model=List[ChatSessionSummary])
 async def list_sessions(user_id: str = Query(..., description="User ID to filter sessions")):
+    """
+    Retrieves a list of sessions for a particular user.
+    """
     try:
         sessions = get_user_chat_sessions(user_id)
         return sessions

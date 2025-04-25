@@ -1,127 +1,132 @@
-from pymongo import MongoClient
-from datetime import datetime
-from app.utils.translate import translate_text
-from app.utils.llm import query_llm, stream_llm_response
+# app/services/chat.py
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List
-import os
+import asyncio
 
-# Mongo URI from .env
-MongoURI: str = os.getenv("MongoURI")
-client = MongoClient(MongoURI)
-db = client["chatbot_db"]
-chat_history_collection = db["chat_history"]
-chat_sessions_collection = db["chat_sessions"]
+# Import the necessary functions from the new chat_processing module to avoid circular imports
+from app.services.chat_processing import process_chat, get_chat_history_by_session, save_chat_history, get_user_chat_sessions
+from app.services.chat_processing import stream_chat_response
 
-# Chat History Document Schema
-class ChatHistory(BaseModel):
+router = APIRouter()
+
+# Request structure for chat input
+class ChatRequest(BaseModel):
+    prompt: str
+    language: str = "en"
     session_id: str
     user_id: str
-    user_prompt: str
-    translated_prompt: str
-    llm_response: str
-    final_response: str
-    language: str
-    timestamp: datetime
 
-# Chat Session Metadata Schema
-class ChatSession(BaseModel):
-    id: str  # session_id
-    user_id: str
+# Response structure for chat output
+class ChatResponse(BaseModel):
+    response: str
+
+# History response
+class HistoryResponse(BaseModel):
+    history: List[dict]
+
+# Session list structure
+class ChatSessionSummary(BaseModel):
+    id: str
     title: str
-    created_at: datetime
+    created_at: str
 
-# Save chat + optionally create session
-def save_chat_history(session_id: str, user_id: str, user_message: str, assistant_message: str, language: str) -> None:
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """
+    Handles user input:
+    - Translates if needed.
+    - Sends to LLM.
+    - Saves in DB with session/user context.
+    """
     try:
-        translated_prompt = translate_text(user_message, target_lang="en") if language != "en" else user_message
-        llm_response = query_llm(translated_prompt)
-        final_response = translate_text(llm_response, target_lang=language) if language != "en" else llm_response
+        print(f"[User Input in {request.language} | Session: {request.session_id} | User: {request.user_id}]: {request.prompt}")
 
-        chat_entry = ChatHistory(
-            session_id=session_id,
-            user_id=user_id,
-            user_prompt=user_message,
-            translated_prompt=translated_prompt,
-            llm_response=llm_response,
-            final_response=final_response,
-            language=language,
-            timestamp=datetime.utcnow()
+        # Process chat and get all necessary outputs from LLM
+        result = process_chat({
+            "prompt": request.prompt,
+            "language": request.language,
+            "session_id": request.session_id
+        })
+
+        print(f"[LLM Response]: {result['final_response']}")
+
+        # Save chat using already available data
+        save_chat_history(
+            session_id=request.session_id,
+            user_id=request.user_id,
+            user_message=request.prompt,
+            translated_prompt=result["translated_prompt"],
+            llm_response=result["llm_response"],
+            final_response=result["final_response"],
+            language=request.language
         )
-        chat_history_collection.insert_one(chat_entry.dict())
 
-        if not chat_sessions_collection.find_one({"id": session_id}):
-            session_doc = ChatSession(
-                id=session_id,
-                user_id=user_id,
-                title=user_message.strip()[:50] or "Untitled Chat",
-                created_at=datetime.utcnow()
-            )
-            chat_sessions_collection.insert_one(session_doc.dict())
+        return ChatResponse(response=result["final_response"])
 
-        print(f"[DB] Chat saved for session: {session_id}")
     except Exception as e:
-        print(f"[ERROR - save_chat_history]: {e}")
-        raise
+        print(f"[ERROR /chat]: {str(e)}")
+        raise HTTPException(status_code=500, detail="Something went wrong during chat.")
 
-# Get last 10 messages for a session
-def get_chat_history_by_session(session_id: str) -> List[dict]:
+
+@router.post("/chat/stream")
+async def chat_stream(request: Request):
+    """
+    Streaming chat response endpoint.
+    Compatible with frontend streaming (e.g., EventSource or fetch streaming).
+    """
     try:
-        messages = chat_history_collection.find({"session_id": session_id}).sort("timestamp", -1).limit(10)
-        return [
-            {
-                "user": msg.get("user_prompt", ""),
-                "ai": msg.get("final_response", "")
-            }
-            for msg in messages
-        ]
-    except Exception as e:
-        print(f"[ERROR - get_chat_history_by_session]: {e}")
-        raise
+        body = await request.json()
+        prompt = body.get("prompt", "")
+        session_id = body.get("session_id")
+        language = body.get("language", "en")
 
-# Get all chat sessions for a user
-def get_user_chat_sessions(user_id: str) -> List[dict]:
-    try:
-        sessions = chat_sessions_collection.find({"user_id": user_id}).sort("created_at", -1)
-        return [
-            {
-                "id": session.get("id"),
-                "title": session.get("title", "Untitled"),
-                "created_at": session.get("created_at").isoformat() if session.get("created_at") else ""
-            }
-            for session in sessions
-        ]
-    except Exception as e:
-        print(f"[ERROR - get_user_chat_sessions]: {e}")
-        raise
-
-# Non-streaming chat processing
-def process_chat(request: dict) -> str:
-    try:
-        prompt = request.get("prompt")
-        language = request.get("language", "en")
-
-        if not request.get("session_id"):
+        if not session_id:
             raise ValueError("Session ID is required")
 
-        translated = translate_text(prompt, "en") if language != "en" else prompt
-        llm_output = query_llm(translated, model="openrouter-mistral")
-        final_output = translate_text(llm_output, language) if language != "en" else llm_output
-        chunked_output = final_output.replace('. ', '.\n')
-        return chunked_output
+        print(f"[Stream Start | Session: {session_id} | Lang: {language}]: {prompt}")
+
+        # Async generator to stream data
+        async def event_generator():
+            try:
+                async for chunk in stream_chat_response({
+                    "prompt": prompt,
+                    "language": language,
+                    "session_id": session_id
+                }):
+                    if chunk.strip():  # Ensure empty chunks aren't streamed
+                        yield chunk
+            except asyncio.CancelledError:
+                # Gracefully handle when the stream is cancelled
+                print(f"[STREAM CANCELLED]: Session {session_id}")
+                return
+
+        # Return StreamingResponse for frontend to consume the chunks
+        return StreamingResponse(event_generator(), media_type="text/plain")
+
     except Exception as e:
-        print(f"[ERROR - process_chat]: {e}")
-        raise
+        print(f"[ERROR /chat/stream]: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error in streaming response.")
 
-# 🔥 Streaming version with chunk filtering
-async def stream_chat_response(request: dict):
-    prompt = request.get("prompt", "")
-    session_id = request.get("session_id", None)
-    language = request.get("language", "en")
 
-    translated_prompt = translate_text(prompt, "en") if language != "en" else prompt
+@router.get("/history", response_model=HistoryResponse)
+async def get_history(session_id: str = Query(..., description="Chat session ID")):
+    try:
+        history = get_chat_history_by_session(session_id)
+        return {"history": history}
+    except Exception as e:
+        print(f"[ERROR /history]: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error fetching chat history.")
 
-    async for chunk in stream_llm_response(translated_prompt, session_id=session_id):
-        translated_chunk = translate_text(chunk, target_lang=language) if language != "en" else chunk
-        if translated_chunk.strip():  # ⬅️ Only yield non-empty text
-            yield translated_chunk
+
+@router.get("/sessions", response_model=List[ChatSessionSummary])
+async def list_sessions(user_id: str = Query(..., description="User ID to filter sessions")):
+    try:
+        sessions = get_user_chat_sessions(user_id)
+        return sessions
+    except Exception as e:
+        print(f"[ERROR /sessions]: {str(e)}")
+        raise HTTPException(status_code=500, detail="Unable to fetch chat sessions.")
