@@ -5,9 +5,11 @@ from datetime import datetime
 from app.utils.translate import translate_text, detect_language
 from app.utils.llm import query_llm, format_llm_response, stream_llm_response
 from pydantic import BaseModel
-from typing import List
+from typing import List, Dict, Optional
 import os
 import asyncio
+import uuid
+from collections import defaultdict
 
 # Mongo URI from .env
 MongoURI = os.getenv("MongoURI")
@@ -15,6 +17,9 @@ client = MongoClient(MongoURI)
 db = client["chatbot_db"]
 chat_history_collection = db["chat_history"]
 chat_sessions_collection = db["chat_sessions"]
+
+# Global dictionary to track active streams and their cancellation events
+active_streams: Dict[str, Dict[str, asyncio.Event]] = defaultdict(dict)
 
 # Chat History Document Schema
 class ChatHistory(BaseModel):
@@ -34,8 +39,9 @@ class ChatSession(BaseModel):
     title: str
     created_at: datetime
 
-# Save chat + optionally create session
-def save_chat_history(session_id: str, user_id: str, user_message: str, translated_prompt: str, llm_response: str, final_response: str, language: str) -> None:
+def save_chat_history(session_id: str, user_id: str, user_message: str, translated_prompt: str, 
+                     llm_response: str, final_response: str, language: str) -> None:
+    """Save chat history and create session if it doesn't exist"""
     try:
         chat_entry = ChatHistory(
             session_id=session_id,
@@ -63,8 +69,8 @@ def save_chat_history(session_id: str, user_id: str, user_message: str, translat
         print(f"[ERROR - save_chat_history]: {e}")
         raise
 
-# Get last 10 messages for a session
 def get_chat_history_by_session(session_id: str) -> List[dict]:
+    """Get last 10 messages for a session"""
     try:
         messages = chat_history_collection.find({"session_id": session_id}).sort("timestamp", -1).limit(10)
         return [
@@ -78,8 +84,8 @@ def get_chat_history_by_session(session_id: str) -> List[dict]:
         print(f"[ERROR - get_chat_history_by_session]: {e}")
         raise
 
-# Get all chat sessions for a user
 def get_user_chat_sessions(user_id: str) -> List[dict]:
+    """Get all chat sessions for a user"""
     try:
         sessions = chat_sessions_collection.find({"user_id": user_id}).sort("created_at", -1)
         return [
@@ -94,18 +100,26 @@ def get_user_chat_sessions(user_id: str) -> List[dict]:
         print(f"[ERROR - get_user_chat_sessions]: {e}")
         raise
 
-# Non-streaming chat processing
 def process_chat(request: dict) -> dict:
+    """Non-streaming chat processing"""
     try:
         prompt = request.get("prompt")
         language = request.get("language", "en")
-        if not request.get("session_id"):
+        session_id = request.get("session_id")
+        
+        if not session_id:
             raise ValueError("Session ID is required")
 
         detected_language = detect_language(prompt)
         translated_prompt = prompt if detected_language == language else translate_text(prompt, "en")
 
-        llm_output = query_llm(translated_prompt, model="openrouter-mistral", session_id=request["session_id"], language=language, format="raw")
+        llm_output = query_llm(
+            translated_prompt, 
+            model="openrouter-mistral", 
+            session_id=session_id, 
+            language=language, 
+            format="raw"
+        )
 
         if not isinstance(llm_output, str):
             raise ValueError("LLM did not return a valid string response")
@@ -125,16 +139,69 @@ def process_chat(request: dict) -> dict:
         print(f"[ERROR - process_chat]: {e}")
         raise
 
-# Streaming version with chunk filtering
 async def stream_chat_response(request: dict):
+    """Streaming chat response with cancellation support"""
     prompt = request.get("prompt", "")
-    session_id = request.get("session_id", None)
+    session_id = request.get("session_id")
     language = request.get("language", "en")
+    user_id = request.get("user_id")
 
-    detected_language = detect_language(prompt)
-    translated_prompt = prompt if detected_language == language else translate_text(prompt, "en")
+    if not session_id:
+        raise ValueError("Session ID is required")
 
-    async for chunk in stream_llm_response(translated_prompt, session_id=session_id, language=language):
-        translated_chunk = chunk if language == "en" or detected_language == language else translate_text(chunk, target_lang=language)
-        if translated_chunk.strip():
-            yield translated_chunk
+    # Create unique stream ID and cancellation event
+    stream_id = str(uuid.uuid4())
+    cancel_event = asyncio.Event()
+    active_streams[session_id][stream_id] = cancel_event
+
+    try:
+        detected_language = detect_language(prompt)
+        translated_prompt = prompt if detected_language == language else translate_text(prompt, "en")
+
+        async for chunk in stream_llm_response(
+            translated_prompt,
+            session_id=session_id,
+            language=language,
+            cancel_event=cancel_event
+        ):
+            # Check if cancellation was requested
+            if cancel_event.is_set():
+                print(f"[STREAM CANCELLED] Session: {session_id}")
+                break
+
+            translated_chunk = chunk if language == "en" or detected_language == language else translate_text(chunk, target_lang=language)
+            if translated_chunk.strip():
+                yield translated_chunk
+
+    except asyncio.CancelledError:
+        print(f"[STREAM CANCELLED EXTERNALLY] Session: {session_id}")
+        raise
+    except Exception as e:
+        print(f"[STREAM ERROR] Session: {session_id} - {str(e)}")
+        raise
+    finally:
+        # Clean up
+        active_streams[session_id].pop(stream_id, None)
+        if not active_streams[session_id]:
+            del active_streams[session_id]
+
+def stop_chat_stream(session_id: str, user_id: str = None):
+    """Stop all active streams for a given session"""
+    if session_id in active_streams:
+        print(f"[STOP REQUESTED] for session: {session_id}")
+        for stream_id, event in active_streams[session_id].items():
+            event.set()
+        
+        # Optionally log the cancellation
+        if user_id:
+            save_chat_history(
+                session_id=session_id,
+                user_id=user_id,
+                user_message="[SYSTEM]",
+                translated_prompt="",
+                llm_response="",
+                final_response="Chat generation was stopped by user",
+                language="en"
+            )
+    else:
+        print(f"[NO ACTIVE STREAMS] for session: {session_id}")

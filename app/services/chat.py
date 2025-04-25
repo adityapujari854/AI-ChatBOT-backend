@@ -6,9 +6,15 @@ from pydantic import BaseModel
 from typing import List
 import asyncio
 
-# Import the necessary functions from the new chat_processing module to avoid circular imports
-from app.services.chat_processing import process_chat, get_chat_history_by_session, save_chat_history, get_user_chat_sessions
-from app.services.chat_processing import stream_chat_response
+# Import the necessary functions from chat_processing
+from app.services.chat_processing import (
+    process_chat, 
+    get_chat_history_by_session, 
+    save_chat_history, 
+    get_user_chat_sessions,
+    stream_chat_response,
+    stop_chat_stream  # Add this import
+)
 
 router = APIRouter()
 
@@ -32,6 +38,11 @@ class ChatSessionSummary(BaseModel):
     id: str
     title: str
     created_at: str
+
+# Stop request structure
+class StopRequest(BaseModel):
+    session_id: str
+    user_id: str
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -83,6 +94,7 @@ async def chat_stream(request: Request):
         prompt = body.get("prompt", "")
         session_id = body.get("session_id")
         language = body.get("language", "en")
+        user_id = body.get("user_id")
 
         if not session_id:
             raise ValueError("Session ID is required")
@@ -95,7 +107,8 @@ async def chat_stream(request: Request):
                 async for chunk in stream_chat_response({
                     "prompt": prompt,
                     "language": language,
-                    "session_id": session_id
+                    "session_id": session_id,
+                    "user_id": user_id
                 }):
                     if chunk.strip():  # Ensure empty chunks aren't streamed
                         yield chunk
@@ -103,6 +116,9 @@ async def chat_stream(request: Request):
                 # Gracefully handle when the stream is cancelled
                 print(f"[STREAM CANCELLED]: Session {session_id}")
                 return
+            except Exception as e:
+                print(f"[STREAM ERROR]: Session {session_id} - {str(e)}")
+                raise
 
         # Return StreamingResponse for frontend to consume the chunks
         return StreamingResponse(event_generator(), media_type="text/plain")
@@ -112,8 +128,24 @@ async def chat_stream(request: Request):
         raise HTTPException(status_code=500, detail="Error in streaming response.")
 
 
+@router.post("/chat/stop")
+async def stop_chat(request: StopRequest):
+    """
+    Endpoint to stop ongoing chat generation for a session.
+    """
+    try:
+        stop_chat_stream(request.session_id, request.user_id)
+        return {"status": "success", "message": "Generation stopped", "session_id": request.session_id}
+    except Exception as e:
+        print(f"[ERROR /chat/stop]: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error stopping chat generation")
+
+
 @router.get("/history", response_model=HistoryResponse)
 async def get_history(session_id: str = Query(..., description="Chat session ID")):
+    """
+    Retrieves the chat history for a particular session.
+    """
     try:
         history = get_chat_history_by_session(session_id)
         return {"history": history}
@@ -124,6 +156,9 @@ async def get_history(session_id: str = Query(..., description="Chat session ID"
 
 @router.get("/sessions", response_model=List[ChatSessionSummary])
 async def list_sessions(user_id: str = Query(..., description="User ID to filter sessions")):
+    """
+    Retrieves a list of sessions for a particular user.
+    """
     try:
         sessions = get_user_chat_sessions(user_id)
         return sessions
