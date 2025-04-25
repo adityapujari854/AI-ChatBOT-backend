@@ -15,6 +15,7 @@ aiohttp
 asyncio
 langdetect
 markdown
+markdown2
 # openai
 # langchain
 # chromadb
