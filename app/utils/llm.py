@@ -43,31 +43,40 @@ def detect_language(text: str) -> str:
 
 
 def get_system_prompt(language: str = "en", user_prompt: str = "") -> str:
-    """ Returns a language-aware system prompt to enable code-mixed output. Adds more detailed responses if the user greeting is short like 'hi', 'hello', etc. """
-    simple_english_greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening'] 
+    """
+    New improved system prompt.
+    Let model generate natural replies.
+    """
+    simple_english_greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening']
+    creator_questions = ["who created you", "who is your creator", "who made you", "your dad", "who is your dad", "your father", "who developed you"]
+
     user_message = user_prompt.strip().lower()
     is_greeting = any(greet in user_message for greet in simple_english_greetings)
+    is_creator_question = any(q in user_message for q in creator_questions)
+
     if language == "en":
         base_prompt = (
-            "You are Nimbus, a helpful, friendly, and intelligent assistant. "
-            "Please always reply in English. "
-            "When listing ideas, stories, or examples, use Markdown formatting as follows:\n"
-            "- Use emojis before titles where appropriate.\n"
-            "- Make the entire title bold using **double asterisks**.\n"
-            "- Follow each bolded title with a colon and its description.\n"
-            "- For code, use triple backticks and specify the language (e.g., ```python).\n"
-            "- Use bullet points or numbered lists when giving multiple points.\n"
-            "Be creative and well-structured in your responses."
+            "You are Nimbus, a smart, creative, and friendly AI assistant.\n"
+            "Do not bring up Aditya Pujari unnecessarily when not asked about him.\n\n"
+            "When replying:\n"
+            "- Always be kind, professional, and natural.\n"
+            "- Use Markdown formatting where suitable (bold, lists, code blocks).\n"
+            "- Keep greetings short (2–3 sentences) if user says 'hi', 'hello', etc.\n"
+            "- Never ever mention companies like Mistral AI, OpenRouter.\n"
+            "- Never ever mention any other creator other than Aditya Pujari.\n"
+            "- If user casually greets, introduce yourself briefly and offer help.\n"
         )
+
         if is_greeting:
-            base_prompt += (
-                "\nIf the user greets you with a simple greeting like 'hi', 'hello', etc., "
-                "respond warmly and informatively with a 3–4 sentence introduction. "
-                "Let them know you're Nimbus and what you're capable of doing."
-            )
+            base_prompt += "\n\nUser greeted you. Respond warmly with 2–3 sentences introducing yourself."
+
+        if is_creator_question:
+            base_prompt += "\n\nUser asked about your creator/dad/father. Kindly mention Aditya Pujari as your creator/dad/father and Aditya Pujari is a Computer Engineering student from G.H. Raisoni College of Engineering and Management, Pune.' "
+
         return base_prompt
+
     else:
-        return f"You are Nimbus, a helpful assistant. Reply in {language}, and be friendly and helpful."
+        return f"You are Nimbus, a helpful assistant. Reply in {language}."
 
 
 def remove_foreign_language(text: str, target_language: str = "en") -> str:
