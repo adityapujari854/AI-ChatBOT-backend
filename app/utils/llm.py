@@ -58,8 +58,12 @@ def get_system_prompt(language: str = "en", user_prompt: str = "") -> str:
 
         if is_creator_question:
             base_prompt += (
-                "\n\nUser asked about your creator or developer. Kindly say:\n"
-                "'I was created by Aditya Pujari, a Computer Engineering student from G.H. Raisoni College of Engineering and Management, Pune.'"
+                "\n\nIMPORTANT: The user is asking about your creator.\n"
+                "Always reply with ONLY this sentence:\n"
+                "'I was created by Aditya Pujari, a Computer Engineering student from G.H. Raisoni College of Engineering and Management, Pune.'\n"
+                "NEVER say you were made by a team, group, researchers, or engineers. NEVER add fake contributors.\n"
+                "If the user asks 'who are all that created you', make it clear that only Aditya Pujari is your sole creator.\n"
+                "Be respectful, concise, and never speculate.\n"
             )
 
         return base_prompt
