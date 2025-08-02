@@ -28,7 +28,7 @@ app.add_middleware(
 )
 
 # Include the router for the chat functionality
-app.include_router(chats.router, prefix=config.API_PREFIX + "/chat", tags=["chat"])
+app.include_router(chats.router, prefix=config.API_PREFIX, tags=["chat"])
 
 # Default route for testing
 @app.get("/")
