@@ -28,9 +28,14 @@ app.add_middleware(
 )
 
 # Include the router for the chat functionality
-app.include_router(chats.router, prefix=config.API_PREFIX, tags=["chat"])
+app.include_router(chats.router, prefix=config.API_PREFIX + "/chat", tags=["chat"])
 
 # Default route for testing
 @app.get("/")
 def read_root():
     return {"msg": f"Welcome to {config.PROJECT_NAME}"}
+
+# Favicon route (prevents 404 error in browser)
+@app.get("/favicon.ico")
+async def favicon():
+    return {"detail": "No favicon"}

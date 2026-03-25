@@ -37,7 +37,7 @@ class ChatSessionSummary(BaseModel):
     created_at: str
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
     Handles user input:
@@ -75,7 +75,7 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail="Something went wrong during chat.")
 
 
-@router.post("/chat/stream")
+@router.post("/stream")
 async def chat_stream(request: Request):
     """
     Streaming chat response endpoint.
